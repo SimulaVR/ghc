@@ -122,7 +122,7 @@ module GHC.Tc.Solver.Monad (
 
     -- Misc
     getDefaultInfo, getDynFlags, getGlobalRdrEnvTcS,
-    matchFam, matchFamTcM, stepFam,
+    matchFam, matchFamTcM, stepFam, steps, stepsWithEvidence,
     checkWellStagedDFun,
     pprEq,                                   -- Smaller utils, re-exported from TcM
                                              -- TODO (DV): these are only really used in the
@@ -4039,6 +4039,20 @@ steps limit fam_envs famapp_cache tycon0 args0 = go0
       | otherwise = (mk_steps_co i ty, ty, i)
 
     mk_steps_co i ty = Rep.UnivCo (Rep.StepsProv 0 i) Nominal ty (mkTyConApp tycon0 args0)
+
+
+stepsWithEvidence :: Int -> FamInstEnvs -> Type -> Maybe (Type, Coercion)
+-- ^ Given a type, perform the given number of steps and produce a coercion.
+stepsWithEvidence n fam_envs ty = go n (ty, mkNomReflCo ty)
+  where
+    go :: Int -> (Type, Coercion) -> Maybe (Type, Coercion)
+    go !i (ty,prev_co)
+      | i <= 0 = Just (ty,prev_co)
+      | Just ty' <- tcView ty = go i (ty',prev_co)
+      | Rep.TyConApp tycon args <- ty
+      , Just (co, ty') <- reduceTyFamApp_maybe fam_envs Nominal tycon args
+                  = go (i-1) (ty', mkSymCo co `mkTransCo` prev_co)
+      | otherwise = Nothing
 
 
 {-
