@@ -3976,46 +3976,69 @@ matchFamTcM tycon args
                                 2 (vcat [ text "Rewrites to:" <+> ppr ty
                                         , text "Coercion:" <+> ppr co ])
 
-stepFam :: IntWithInf -> TyCon -> [Type] -> TcS (Maybe (CoercionN, TcType), Int)
--- ^ Given (F tys) return (co, ty), where co :: ty ~N F tys
-stepFam limit tycon args = wrapTcS $ stepFamTcM limit tycon args
-
-stepFamTcM :: IntWithInf -> TyCon -> [Type] -> TcM (Maybe (CoercionN, TcType), Int)
+stepFam :: IntWithInf -> TyCon -> [Type] -> TcS (Maybe (CoercionN, TcType, Int))
 -- ^ Given (F tys) return (co, ty), where co :: ty ~ N F tys
-stepFamTcM limit tycon args
-  = do { fam_envs <- FamInst.tcGetFamInstEnvs
-       ; let match_fam_result
-              = reduceTyFamApp_maybe fam_envs Nominal tycon args
-       ; case match_fam_result of
-           Nothing       -> return (match_fam_result, 0)
-           Just (co, ty) -> do { let ty0 = mkTyConApp tycon args
-                               ; let (ty', n) = steps (limit `minusWithInf` 1) fam_envs ty
-                               ; let co' = Rep.UnivCo (Rep.StepsProv 0 (n+1)) Nominal ty' ty0
-                               ; let r | n > 0     = (co', ty')
-                                       | otherwise = (mkTcSymCo co, ty')
-                               ; return (Just r, n+1)
-                               }
+stepFam limit tycon args
+  = do { fam_envs <- getFamInstEnvs
+       ; IS { inert_famapp_cache = famapp_cache } <- getTcSInerts
+       ; return $ steps limit fam_envs famapp_cache tycon args
        }
 
-steps :: IntWithInf -> FamInstEnvs -> Type -> (Type, Int)
+steps :: IntWithInf -> FamInstEnvs -> FunEqMap (TcCoercion,TcType) -> TyCon -> [Type]
+      -> Maybe (TcCoercionN, TcType, Int)
 -- ^ Given a type, perform as many type family reduction steps as possible, then
 -- return the resulting type and the number of steps.  Look through type
 -- synonyms but do not count them as steps.
-steps limit fam_envs ty = go 0 ty ty
+steps limit fam_envs famapp_cache tycon0 args0 = go0
   where
-    -- Accumulate the step count, the current type (without type synonyms
-    -- expanded), and the current type with synonyms expanded.  Thus when we
-    -- stop, we can avoid expanding type synonyms on the final step.  This is
-    -- needed for the ExpandTFs test, which defines
-    --   type family Foo a where Foo Int = String
-    -- and when stepping Foo Int we want to return String rather than [Char].
-    go :: Int -> TcType -> TcType -> (TcType, Int)
-    go !i ty ty_expanded
-      | intGtLimit i limit = (ty, i)
-      | Just ty_expanded' <- tcView ty_expanded = go i ty ty_expanded'
+    -- This function is organised in three parts, corresponding to whether we
+    -- have taken 0, 1 or >1 steps.  We start with a step count of 0. Check for
+    -- a cache hit immediately, or if we can reduce switch to go1.
+    go0 :: Maybe (TcCoercionN, TcType, Int)
+    go0
+      | Just (co, ty) <- findFunEq famapp_cache tycon0 args0                = Just (co, ty, 0)
+      | Just (co, ty) <- reduceTyFamApp_maybe fam_envs Nominal tycon0 args0 = Just (go1 ty ty co)
+      | otherwise                                                           = Nothing
+
+    -- Here we have a step count of exactly 1. We keep track of the coercion for
+    -- the first step, so that we can return it if we take no more steps.
+    --
+    -- In this and the following loop we pass the current type twice, one
+    -- without type synonyms expanded, and once with type synonyms expanded.
+    -- Thus when we stop, we can avoid expanding type synonyms on the final
+    -- step.  This is needed for the ExpandTFs test, which defines type family
+    -- Foo a where Foo Int = String and when stepping Foo Int we want to return
+    -- String rather than [Char].
+    --
+    -- Again we might get a cache hit and terminate, otherwise if we take
+    -- another step we switch to goN.
+    go1 :: TcType -> TcType -> TcCoercionN -> (TcCoercionN, TcType, Int)
+    go1 ty ty_expanded co
+      | intGtLimit 1 limit = (mkTcSymCo co, ty, 1)
+      | Just ty_expanded' <- tcView ty_expanded = go1 ty ty_expanded' co
       | Rep.TyConApp tycon args <- ty_expanded
-      , Just (_, ty') <- reduceTyFamApp_maybe fam_envs Nominal tycon args = go (i+1) ty' ty'
-      | otherwise = (ty, i)
+      , Just (co_cache, ty_cache) <- findFunEq famapp_cache tycon args
+      = (co_cache `mkTcTransCo` mkTcSymCo co, ty_cache, 1)
+      | Rep.TyConApp tycon args <- ty_expanded
+      , Just (_, ty') <- reduceTyFamApp_maybe fam_envs Nominal tycon args
+      = goN 2 ty' ty'
+      | otherwise = (mkTcSymCo co, ty, 1)
+
+    -- Now the step count is strictly greater than 1.  We keep going until we
+    -- get a cache hit, fail to reduce or hit the limit, whereupon we return a
+    -- StepsProv coercion.
+    goN :: Int -> TcType -> TcType -> (TcCoercionN, TcType, Int)
+    goN !i ty ty_expanded
+      | intGtLimit i limit = (mk_steps_co i ty, ty, i)
+      | Just ty_expanded' <- tcView ty_expanded = goN i ty ty_expanded'
+      | Rep.TyConApp tycon args <- ty_expanded
+      , Just (co', ty') <- findFunEq famapp_cache tycon args
+      = (co' `mkTransCo` mk_steps_co i ty, ty', i)
+      | Rep.TyConApp tycon args <- ty_expanded
+      , Just (_, ty') <- reduceTyFamApp_maybe fam_envs Nominal tycon args = goN (i+1) ty' ty'
+      | otherwise = (mk_steps_co i ty, ty, i)
+
+    mk_steps_co i ty = Rep.UnivCo (Rep.StepsProv 0 i) Nominal ty (mkTyConApp tycon0 args0)
 
 
 {-
