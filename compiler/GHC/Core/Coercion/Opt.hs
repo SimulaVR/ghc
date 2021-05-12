@@ -777,6 +777,9 @@ opt_trans_rule is co1 co2
                                         (mkCoVarCo cv1) `mkTransCo` n2])
                     r2
 
+
+{-
+
 -- Push transitivity inside axioms
 opt_trans_rule is co1 co2
 
@@ -835,6 +838,7 @@ opt_trans_rule is co1 co2
     co1_is_axiom_maybe = isAxiom_maybe co1
     co2_is_axiom_maybe = isAxiom_maybe co2
     role = coercionRole co1 -- should be the same as coercionRole co2!
+-}
 
 opt_trans_rule _ co1 co2        -- Identity rule
   | let ty1 = coercionLKind co1
