@@ -93,7 +93,6 @@ import GHC.Data.Bag
 
 import Control.Monad
 import Data.List  ( partition )
-import Data.Void  ( absurd )
 import Control.Arrow ( second )
 
 {- *********************************************************************
@@ -754,9 +753,9 @@ zonkExpr env (HsRecFld _ (Ambiguous v occ))
 zonkExpr env (HsRecFld _ (Unambiguous v occ))
   = return (HsRecFld noExtField (Unambiguous (zonkIdOcc env v) occ))
 
-zonkExpr _ (HsIPVar x _) = absurd x
+zonkExpr _ (HsIPVar x _) = dataConCantHappen x
 
-zonkExpr _ (HsOverLabel x _) = absurd x
+zonkExpr _ (HsOverLabel x _) = dataConCantHappen x
 
 zonkExpr env (HsLit x (HsRat e f ty))
   = do new_ty <- zonkTcTypeToTypeX env ty
@@ -788,7 +787,7 @@ zonkExpr env (HsAppType ty e t)
        return (HsAppType new_ty new_e t)
        -- NB: the type is an HsType; can't zonk that!
 
-zonkExpr _ (HsRnBracketOut x _ _) = absurd x
+zonkExpr _ (HsRnBracketOut x _ _) = dataConCantHappen x
 
 zonkExpr env (HsTcBracketOut ty wrap body bs)
   = do wrap' <- traverse zonkQuoteWrap wrap
@@ -809,7 +808,7 @@ zonkExpr env (HsSpliceE _ (XSplice (HsSplicedT s))) =
 
 zonkExpr _ e@(HsSpliceE _ _) = pprPanic "zonkExpr: HsSpliceE" (ppr e)
 
-zonkExpr _ (OpApp x _ _ _) = absurd x
+zonkExpr _ (OpApp x _ _ _) = dataConCantHappen x
 
 zonkExpr env (NegApp x expr op)
   = do (env', new_op) <- zonkSyntaxExpr env op
@@ -820,8 +819,8 @@ zonkExpr env (HsPar x e)
   = do new_e <- zonkLExpr env e
        return (HsPar x new_e)
 
-zonkExpr _ (SectionL x _ _) = absurd x
-zonkExpr _ (SectionR x _ _) = absurd x
+zonkExpr _ (SectionL x _ _) = dataConCantHappen x
+zonkExpr _ (SectionR x _ _) = dataConCantHappen x
 zonkExpr env (ExplicitTuple x tup_args boxed)
   = do { new_tup_args <- mapM zonk_tup_arg tup_args
        ; return (ExplicitTuple x new_tup_args boxed) }
