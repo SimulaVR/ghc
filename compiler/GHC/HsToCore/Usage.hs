@@ -201,6 +201,7 @@ mkObjectUsage hsc_env = do
     fing = (\fn -> UsageFile fn <$> getFileHash fn)
 
     unlinkedToUsage ul =
+      -- TODO: Handle BCOs
       traverse fing  (nameOfObject_maybe ul)
 
     librarySpecToUsage :: LibrarySpec -> IO [Usage]
