@@ -1796,7 +1796,7 @@ wayGeneralFlags _ WayDyn      = [Opt_PIC, Opt_ExternalDynamicRefs]
     -- .so before loading the .so using the system linker.  Since only
     -- PIC objects can be linked into a .so, we have to compile even
     -- modules of the main program with -fPIC when using -dynamic.
-wayGeneralFlags _ WayProf     = [Opt_SccProfilingOn]
+wayGeneralFlags _ WayProf     = [Opt_SccProfilingOn, Opt_PIC, Opt_ExternalDynamicRefs]
 wayGeneralFlags _ WayEventLog = []
 
 -- Turn these flags off when enabling this way
